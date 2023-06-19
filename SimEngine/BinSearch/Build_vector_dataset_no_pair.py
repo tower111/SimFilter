@@ -85,7 +85,8 @@ class x2vTrainer(object):
                                           self.kb_seq,
                                           self.node_kb_max,
                                           self.max_path,
-                                          self.path_len
+                                          self.path_len,
+                                        nopair=True
                                           )
 
         self.id2vec = self.matrix_load(flags.id2vec)
@@ -228,15 +229,3 @@ if __name__ == '__main__':
     # trainer.scan_data()
     # trainer.test()
     # trainer.static_data()
-    """
-    -i
-    data/w2v/word2id.json
-    -v
-    data/w2v/embedding_matrix.npy
-    -z
-    data/datacenter/test_dataset.json
-    -n
-    seq_SAFE
-    -m
-    /home/yuqing/Desktop/10t-net/tower/PaperProject/SimFilter/data/trainResult/comFU_W_new_seq_SAFE_no_kb.model
-    """

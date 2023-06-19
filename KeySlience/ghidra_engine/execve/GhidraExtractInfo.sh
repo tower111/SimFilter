@@ -1,3 +1,5 @@
-runPath="./"  #在 my_script 目录下运行
-analyzeHeadless $runPath/out/project aa -scriptPath $runPath/src -postScript Comfu_function.java \
--import $runPath/out/binary -overwrite
+runPath="/home/yuqing/Desktop/10t-net/tower/PaperProject/SimFilter/KeySlience/ghidra_engine/my_script/"  #在 my_script 目录下运行
+dataPath="/home/yuqing/Desktop/10t-net/tower/PaperProject/SimFilter/data/GhidraSlience/BinarySim/binary"
+projectPath="/home/yuqing/Desktop/10t-net/tower/PaperProject/SimFilter/data/GhidraSlience/BinarySim/project"
+analyzeHeadless $projectPath aa -scriptPath $runPath/src -postScript Comfu_function.java \
+-import $dataPath -overwrite

@@ -30,6 +30,8 @@ import static ghidra.app.decompiler.ClangToken.*;
 
 
 public class Comfu_function extends GhidraScript {
+
+    long startTime=System.currentTimeMillis();
     public Configer config=new Configer();
     //    private DecompInterface decompInterface=null;
     private FU_result function_unicons = new FU_result();
@@ -63,6 +65,7 @@ public class Comfu_function extends GhidraScript {
 //        Map binary_indexed= new HashMap();
         List<Function> passed=new ArrayList<>();
         List<FuncUicorn> FU_silence_list=new ArrayList<>();
+        println(binary_path.toString());
         for (Function func : funcs) {
             boolean thunk = func.isThunk();
             boolean external = func.isExternal();
@@ -74,7 +77,7 @@ public class Comfu_function extends GhidraScript {
             funcinfo.func=func;
             Map fu_inFunc_index_dict=new HashMap();
 
-            println(binary_path.toString()+" "+func.getName());
+//             println(binary_path.toString()+" "+func.getName());
             if(true){
 //            if (func.getName().equals("FUN_0001e22c")) { //出问题地址 FUN_00012944   FUN_00012944
 //                printf("Function: %s @ 0x%s", func.getName(), func.getEntryPoint());
@@ -85,7 +88,7 @@ public class Comfu_function extends GhidraScript {
                     chroot_map.put(FuncAddres,chroot);
                 this.cnodeList=new ArrayList<>();
                 getClangNode(chroot);
-                print(this.cnodeList.toString());
+//                 print(this.cnodeList.toString());
 //                HighFunction high = res.getHighFunction();
 //                Iterator<PcodeOpAST> opiter = high.getPcodeOps();
 //                while (opiter.hasNext())
@@ -112,7 +115,7 @@ public class Comfu_function extends GhidraScript {
 //                        Address call_addr = inputs[0].getAddress();
 //                        Function called_func = fm.getFunctionAt(call_addr);
 //                        String call_name = called_func.getName();
-                        System.out.println("called function " + call_name);
+//                         System.out.println("called function " + call_name);
 //                        if(!call_name.equals("SSL_CTX_use_certificate_chain_file"))continue;
                         if(fu_inFunc_index_dict.containsKey(call_name)){
                             int num = (int) fu_inFunc_index_dict.get(call_name);
@@ -173,7 +176,7 @@ public class Comfu_function extends GhidraScript {
                                 }
                             if(this.source_slience.size()==0)
                                 continue;
-                            System.out.println("param index: " + param_index);
+//                             System.out.println("param index: " + param_index);
                             if (one_slience.containsKey(real_param_index)){
                                 ((ArrayList<ArrayList<ClangToken>>)one_slience.get(real_param_index)).add(source_slience);
                             }else{
@@ -246,7 +249,7 @@ public class Comfu_function extends GhidraScript {
                         assert param_index==Fu_Ccode_slience.size();
                         if (param_index!=0) {
                             root_slience.set(FU_silence.Func_name + "@@" + FU_silence.Fu_funcname + "@@" + FU_silence.fu_inFunc_index, funcJsNode);
-                            root.set(FU_silence.Func_name + "@@" + FU_silence.Fu_funcname + "@@" + FU_silence.fu_inFunc_index, siJson);
+                            root.set(FU_silence.Func_address+"@@"+FU_silence.Func_name + "@@" + FU_silence.Fu_funcname + "@@" + FU_silence.fu_inFunc_index, siJson);
                         }
                     }
 
@@ -295,6 +298,8 @@ public class Comfu_function extends GhidraScript {
         catch (IOException e){
             e.printStackTrace();
         }
+        long endTime=System.currentTimeMillis();
+        System.out.println("程序运行时间： "+(double) (endTime - startTime) / 1000+"s");
     }
 
     public String PcodeToString(PcodeOp pOp,FunctionManager fm){
@@ -411,11 +416,12 @@ public class Comfu_function extends GhidraScript {
                             Func tmp_funcinfo = new Func();
                             tmp_funcinfo.func = referencefunction;
 //                            print(referencefunction.getName());
-                            DecompileResults res = ifc.decompileFunction(referencefunction, 60, monitor);
+
                             ClangTokenGroup cur_chroot=null;
                             if (this.chroot_map.containsKey(referencefunction.getEntryPoint())) {
                                 cur_chroot= (ClangTokenGroup) this.chroot_map.get(referencefunction.getEntryPoint());
                             }else{
+                                DecompileResults res = ifc.decompileFunction(referencefunction, 60, monitor);
                                 cur_chroot = res.getCCodeMarkup();   //获取速度慢，需要缓存
                                 this.chroot_map.put(referencefunction.getEntryPoint(), cur_chroot);
                             }

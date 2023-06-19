@@ -1,19 +1,26 @@
 import argparse
 import json
+import ujson
 import time
 import numpy as np
 import networkx as nx
 from scipy import sparse
 import random
 # from BlockFeaturesExtractor import BlockFeaturesExtractor
+import config
+
 
 class pairsDataset(object):
 
     def __init__(self,word2id,api2id,dataset,seq_len,max_instructions,max_nodes,
-                 api_seq,node_kb_max,max_path,path_len):
+                 api_seq,node_kb_max,max_path,path_len,nopair=False):
         self.word2id = self.read_word2id(word2id)
         self.api2id =[]#self.read_api2id(api2id)
-        self.dataset = self.read_dataset(dataset)
+        self.nopair=nopair
+        if nopair==False:
+            self.dataset = self.read_dataset(dataset)
+        else:
+            self.dataset=self.read_dataset_nopair(dataset)
         self.max_instructions = max_instructions
         self.max_nodes = max_nodes
 
@@ -38,21 +45,36 @@ class pairsDataset(object):
 
 
     def read_word2id(self,word2id):
+
         with open(word2id, 'r') as f:
-            word2idjson = json.load(f)
-            return word2idjson
+            tmp=f.read()
+        word2idjson = ujson.loads(tmp)
+        return word2idjson
 
     def read_api2id(self,api2id):
         with open(api2id, 'r') as f:
-            api2idjson = json.load(f)
-            return api2idjson
+            tmp = f.read()
+        api2idjson = ujson.loads(tmp)
+        return api2idjson
 
     def read_dataset(self,dataset):
         with open(dataset, 'r') as f:
-            datasetjson = json.load(f)
+            tmp = f.read()
+        datasetjson = ujson.loads(tmp)
         self.datasetname = datasetjson['name']
         return datasetjson['data'][0]
             # return datasetjson
+
+    def read_dataset_nopair(self, dataset):
+        with open(dataset, 'r') as f:
+            tmp = f.read()
+        datasetjson = ujson.loads(tmp)
+        self.datasetname = datasetjson
+        self.vul=datasetjson["vul"]
+        self.func=datasetjson["func"]
+        self.pair=datasetjson["pair"]
+        return self.pair
+
 
 
     def get_ids(self,instructions):
@@ -489,7 +511,7 @@ class pairsDataset(object):
         out = [g1_matrix, g2_matrix,lable,g1_api,g2_api,g1_length,g2_length,g1_api_length,g2_api_length]
         return out
 
-    def get_seq_singles(self,funcs,funca=True):
+    def get_seq_singles(self,funcs,funca=True,test_vul=config.test_vul):
 
         g1_matrix = []
         g1_api = []
@@ -505,19 +527,32 @@ class pairsDataset(object):
 
         # batch_size*seq
         for ind in funcs:
+            if test_vul==True:
+                # cfga = ind['cfga']
+                # cfgb = ind['cfgb']
+                funca_id=ind["funca"]
+                funcb_id=ind["funcb"]
+                funca_info=self.vul[str(funca_id)]
+                funcb_info=self.func[str(funcb_id)]
+                cfga=funca_info["blocks"]
+                cfgb = funcb_info["blocks"]
 
-            if funca==True:
-                cfga = ind['cfga']
                 a_matrix, a_api, a_length, a_api_length = self.get_seq_from_cfg(cfga)
-                b_matrix, b_api, b_length, b_api_length = a_matrix, a_api, a_length, a_api_length
-                lab = float(+1)
-                lable.append(lab)
+                b_matrix, b_api, b_length, b_api_length = self.get_seq_from_cfg(cfgb)
+                lable.append(float(1))
             else:
-                cfga = ind['cfga']
-                cfgb = ind['cfgb']
-                a_matrix, a_api, a_length, a_api_length = self.get_seq_from_cfg(cfga)
-                b_matrix, b_api, b_length, b_api_length= self.get_seq_from_cfg(cfgb)
-                lable.append(float(ind["similarity"]))
+                if funca==True:
+                    cfga = ind['cfga']
+                    a_matrix, a_api, a_length, a_api_length = self.get_seq_from_cfg(cfga)
+                    b_matrix, b_api, b_length, b_api_length = a_matrix, a_api, a_length, a_api_length
+                    lab = float(+1)
+                    lable.append(lab)
+                else:
+                    cfga = ind['cfga']
+                    cfgb = ind['cfgb']
+                    a_matrix, a_api, a_length, a_api_length = self.get_seq_from_cfg(cfga)
+                    b_matrix, b_api, b_length, b_api_length= self.get_seq_from_cfg(cfgb)
+                    lable.append(float(ind["similarity"]))
 
             g1_matrix.append(a_matrix)
             g2_matrix.append(b_matrix)

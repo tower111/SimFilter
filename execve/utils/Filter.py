@@ -1,19 +1,47 @@
 import os
 from functools import lru_cache
 import config
+import ujson
+from tqdm import tqdm
 import json
 class Filter:
     def __init__(self):
         # self.
         # self.binaryList=self.binary()
-        self.SliencePath=config.KeySlienceInfo
-        self.SlenceInfo=self.GetslienceInfo()
+        # print("loading sl")
+        self.all_KeyStatment=[]
+        if config.test_vul==False:
+            self.SliencePath = config.KeySlienceInfo
+            self.SlenceInfo = self.GetslienceInfo(self.SliencePath)
+        else:
+            self.SliencePath_tested=config.KeySlienceInfo_Tested
+            self.SliencePath_vul=config.KeySlienceInfo_vul
+            self.SlenceInfo_tested=self.GetslienceInfo(self.SliencePath_tested)
+            self.SlenceInfo_vul = self.GetslienceInfo(self.SliencePath_vul)
+            self.SlenceInfo={}
+            self.SlenceInfo.update(self.SlenceInfo_vul)
+            self.SlenceInfo.update(self.SlenceInfo_tested)
+            # self.SlenceInfo=dict(self.SlenceInfo_vul.items()+self.SlenceInfo_tested.items())
+            # self.SlenceInfo =self.SlenceInfo_tested
         self.filename=set() #保存所有文件名
 
 
         self.method_list=["filter_constValue_fine","filter_arrayLen_fine","filter_varType_fine","filter_number_slienceLen_fine",
                           "filter_number_const_fine","filter_number_call_fine","filter_number_var_fine",
                           "filter_number_call_param_fine","filter_num_param_fine"]
+        self.method_weight={
+            "filter_constValue_fine":1/10,
+            "filter_arrayLen_fine":1.5/10,
+            "filter_varType_fine" :1.5/10,
+            "filter_number_slienceLen_fine":0.5/10,
+            "filter_number_const_fine":0.5/10,
+            "filter_number_call_fine":1.5/10,
+            "filter_number_var_fine":0.5/10,
+            "filter_number_call_param_fine":1/10,
+            "filter_num_param_fine" :1/10,
+            "rawMethod":1/10
+        }
+
 
     @staticmethod
     def Md5(filename):
@@ -23,7 +51,7 @@ class Filter:
         return md5.lower()
     def binary(self):
         with open(config.DataSetList,"r") as fd:
-            data=json.loads(fd.read())
+            data=ujson.loads(fd.read())
         result={}
 
         for item in data:
@@ -48,11 +76,23 @@ class Filter:
 
             for info in slience:
                 for k, v in info.items():
-                    all_const[k] = v
+                    if config.test_vul == True:
+                        if (k[0].startswith("FUN_")):  # FUN_0007d7ac
+                            all_const[("FUN", k[1])] = v
+                        else:
+                            all_const[k] = v
+                    else:
+                        all_const[k] = v
 
             for info in slience1:
                 for k, v in info.items():
-                    all_const1[k] = v
+                    if config.test_vul == True:
+                        if (k[0].startswith("FUN_")):  # FUN_0007d7ac
+                            all_const1[("FUN", k[1])] = v
+                        else:
+                            all_const1[k] = v
+                    else:
+                        all_const1[k] = v
 
         all_const = dict()
         all_const1 = dict()
@@ -68,42 +108,50 @@ class Filter:
                 if callee_constinfo==0 or callee_constinfo1==0:
                     result_flag.append(0)
                     continue
-                if abs(callee_constinfo-callee_constinfo1)/callee_constinfo==0 or \
-                    abs(callee_constinfo-callee_constinfo1)/callee_constinfo1==0:
+                if abs(callee_constinfo-callee_constinfo1)/callee_constinfo<=0 or \
+                    abs(callee_constinfo-callee_constinfo1)/callee_constinfo1<=0:
                     result_flag.append(1)
                 else:
                     result_flag.append(0)
             else:
                 result_flag.append(0)
+        # self.all_KeyStatment.append(len(result_flag))#+=len(result_flag)
 
-        if(result_flag.count(1)/len(result_flag))>threshold:
+        if(result_flag.count(1)/len(result_flag))>=threshold:
             return 1
         else:
             return 0
 
 
 
-    def GetslienceInfo(self):
+    def GetslienceInfo(self,path):
         result={}
-        for file in os.listdir(self.SliencePath):
+        for file in os.listdir(path):
             if os.path.isdir(file) :
                 continue
             # if file in result:
             assert not(file in result)
             if "statistic_extracted" in file:
-                with open(config.KeySlienceInfo+file,"r") as fd:
-                    data=json.loads(fd.read())
-                result[file.split(".elf_")[0]+".elf"]=self.preprocess_slienceinfo(data)
+                with open(path+file,"r") as fd:
+                    data=ujson.loads(fd.read())
+                if config.test_vul==False:
+                    result[file.split(".elf_")[0]+".elf"]=self.preprocess_slienceinfo(data)
+                else:
+                    file=file.replace("__statistic_extracted.json","")
+                    result["_".join(file.split("_")[0:-1]) ] = self.preprocess_slienceinfo(data)
         return result
     def Get_Sim(self):
         info = self.getinfo(config.func_vector_info)
         result={}
+        file_info_right={}
         continue_flag=0
         method_list=self.method_list
         def init():
             for method_name in  method_list:
                 result[method_name]={"realLable":[],"predictLable":[]}
+                file_info_right[method_name]=[]
             result["rawMethod"] = {"realLable": [], "predictLable": []}
+            file_info_right["rawMethod"] = []
         def add_allMethod_pred(value):
             for method_name in  method_list:
                 result[method_name]["predictLable"].append(value)
@@ -133,6 +181,10 @@ class Filter:
                     continue_flag=0
                     if filf==1:
                         result[method_name]["predictLable"].append(1)
+                        file_info_right[method_name].append(({"vul":(funca["file_name"],funca["fun_name"],
+                                                                     funca["fun_address"]),
+                                                              "tested":(funcb["file_name"],funcb["fun_name"],
+                                                                     funcb["fun_address"])}))
                     elif filf==-1:#获取信息失败
                         continue_flag=1
                         break
@@ -143,20 +195,24 @@ class Filter:
                 if continue_flag==1:
                     continue
                 result["rawMethod"]["predictLable"].append(1)
+                file_info_right["rawMethod"].append(({"vul": (funca["file_name"], funca["fun_name"],
+                                                              funca["fun_address"]),
+                                                      "tested": (funcb["file_name"], funcb["fun_name"],
+                                                                 funcb["fun_address"])}))
             add_allMethod_label(label)
             result["rawMethod"]["realLable"].append(label)
             self.filename.add(funcb["file_name"])
             self.filename.add(funca["file_name"])
-        return result
+        return result,file_info_right
     @staticmethod
     def getinfo(filename):
         with open(filename, "r") as fd:
-            content = json.loads(fd.read())
+            content = ujson.loads(fd.read())
         return content
     @staticmethod
     def GetFuncPair( info):
 
-        for item in info:
+        for item in tqdm(info):
             funca=item[0]
             funcb=item[1]
             pred=item[2]
@@ -169,36 +225,39 @@ class Filter:
     def preprocess_slienceinfo(sliences):
         resul={}
         for slience_funcname,slience_info in sliences.items():
-            try:
-                callee,caller,index=slience_funcname.split("@@")
-                if callee in resul:
-                    assert {(caller,index):slience_info} not in resul[callee]
-                else:
-                    resul[callee]=[]
-                resul[callee].append({(caller, index): slience_info})
-            except Exception as e:
-                print(e)
-                print("解析slience_funcname出现错误：{}".format(slience_funcname))
+            # try:
+            caller1,callee,index=slience_funcname.split("@@")
+            if config.test_vul==True:
+                if "FUN" in caller1:
+                    caller1=str(int(caller1.replace("FUN_",""),16))
+            if caller1 in resul:
+                assert {(callee,index):slience_info} not in resul[caller1]
+            else:
+                resul[caller1]=[]
+            resul[caller1].append({(callee, index): slience_info})
+            # except Exception as e:
+            #     print(e)
+            #     print("解析slience_funcname出现错误：{}".format(slience_funcname))
         return resul
 
     def filter_num_param_fine(self,slience,slience1):
-        return self.ComSlience_int_fine(slience,slience1,"num_param",0.5)
+        return self.ComSlience_int_fine(slience,slience1,"num_param",config.number_threold)
 
     def filter_number_call_param_fine(self,slience,slience1):
-        return self.ComSlience_int_fine(slience, slience1, "number_call_param", 0.5)
+        return self.ComSlience_int_fine(slience, slience1, "number_call_param", config.number_threold)
 
     def filter_number_var_fine(self,slience,slience1):
-        return self.ComSlience_int_fine(slience, slience1, "number_var", 0.5)
+        return self.ComSlience_int_fine(slience, slience1, "number_var", config.number_threold)
 
 
     def filter_number_call_fine(self,slience,slience1):
-        return self.ComSlience_int_fine(slience, slience1, "number_call", 0.5)
+        return self.ComSlience_int_fine(slience, slience1, "number_call", config.number_threold)
 
     def filter_number_const_fine(self,slience,slience1):
-        return self.ComSlience_int_fine(slience, slience1, "number_const", 0.5)
+        return self.ComSlience_int_fine(slience, slience1, "number_const", config.number_threold)
 
     def filter_number_slienceLen_fine(self,slience,slience1):
-        return self.ComSlience_int_fine(slience, slience1, "Slience_len", 0.5)
+        return self.ComSlience_int_fine(slience, slience1, "Slience_len", config.number_threold)
 
     @staticmethod
     def filter_varType(slience,slience1):
@@ -217,8 +276,8 @@ class Filter:
             return 1
         else:
             return 0
-    @staticmethod
-    def filter_varType_fine(slience,slience1):
+
+    def filter_varType_fine(self,slience,slience1):
         """
         细粒度检测常数，记录callee的每个常量列表，如果两个常量列表的交集为其中一个常量列表，则记录为true
         当所有callee中true满足一定比例，认为相似
@@ -231,11 +290,23 @@ class Filter:
         all_const1 = dict()
         for info in slience:
             for k,v in info.items():
-                all_const[k]=v
+                if config.test_vul==True:
+                    if (k[0].startswith("FUN_")):#FUN_0007d7ac
+                        all_const[("FUN",k[1])]=v
+                    else:
+                        all_const[k] = v
+                else:
+                    all_const[k] = v
 
         for info in slience1:
             for k,v in info.items():
-                all_const1[k] = v
+                if config.test_vul == True:
+                    if (k[0].startswith("FUN_")):  # FUN_0007d7ac
+                        all_const1[("FUN", k[1])] = v
+                    else:
+                        all_const1[k] = v
+                else:
+                    all_const1[k] = v
 
         result_flag=[]
         for callee_name,info in all_const.items():
@@ -250,8 +321,8 @@ class Filter:
                     result_flag.append(0)
             else:
                 result_flag.append(0)
-
-        if(result_flag.count(1)/len(result_flag))>0.1:
+        # self.all_KeyStatment.append(len(result_flag)) #+= len(result_flag)
+        if(result_flag.count(1)/len(result_flag))>=config.set_threold:
             return 1
         else:
             return 0
@@ -277,8 +348,8 @@ class Filter:
         #     return 1
         # else:
         #     return 0
-    @staticmethod
-    def filter_constValue_fine(slience,slience1):
+
+    def filter_constValue_fine(self,slience,slience1):
         """
         细粒度检测常数，记录callee的每个常量列表，如果两个常量列表的交集为其中一个常量列表，则记录为true
         当所有callee中true满足一定比例，认为相似
@@ -291,11 +362,24 @@ class Filter:
         all_const1 = dict()
         for info in slience:
             for k,v in info.items():
-                all_const[k]=v
+                if config.test_vul==True:
+                    if (k[0].startswith("FUN_")):#FUN_0007d7ac
+                        all_const[("FUN",k[1])]=v
+                    else:
+                        all_const[k] = v
+                else:
+                    all_const[k] = v
 
         for info in slience1:
             for k,v in info.items():
-                all_const1[k] = v
+                if config.test_vul == True:
+                    if (k[0].startswith("FUN_")):  # FUN_0007d7ac
+                        all_const1[("FUN", k[1])] = v
+                    else:
+                        all_const1[k] = v
+                else:
+                    all_const1[k] = v
+                # all_const1[k] = v
 
         result_flag=[]
         for callee_name,info in all_const.items():
@@ -309,14 +393,14 @@ class Filter:
                     result_flag.append(0)
             else:
                 result_flag.append(0)
-
-        if(result_flag.count(1)/len(result_flag))>0.5:
+        # self.all_KeyStatment.append(len(result_flag)) #+= len(result_flag)
+        if(result_flag.count(1)/len(result_flag))>=config.set_threold:
             return 1
         else:
             return 0
 
-    @staticmethod
-    def filter_arrayLen_fine(slience,slience1):
+
+    def filter_arrayLen_fine(self,slience,slience1):
         """
         细粒度检测常数，记录callee的每个常量列表，如果两个常量列表的交集为其中一个常量列表，则记录为true
         当所有callee中true满足一定比例，认为相似
@@ -329,11 +413,23 @@ class Filter:
         all_const1 = dict()
         for info in slience:
             for k,v in info.items():
-                all_const[k]=v
+                if config.test_vul==True:
+                    if (k[0].startswith("FUN_")):#FUN_0007d7ac
+                        all_const[("FUN",k[1])]=v
+                    else:
+                        all_const[k] = v
+                else:
+                    all_const[k] = v
 
         for info in slience1:
             for k,v in info.items():
-                all_const1[k] = v
+                if config.test_vul == True:
+                    if (k[0].startswith("FUN_")):  # FUN_0007d7ac
+                        all_const1[("FUN", k[1])] = v
+                    else:
+                        all_const1[k] = v
+                else:
+                    all_const1[k] = v
 
         result_flag=[]
         for callee_name,info in all_const.items():
@@ -348,8 +444,8 @@ class Filter:
                     result_flag.append(0)
             else:
                 result_flag.append(0)
-
-        if(result_flag.count(1)/len(result_flag))>0.1:
+        self.all_KeyStatment.append(len(result_flag)) #+= len(result_flag)
+        if(result_flag.count(1)/len(result_flag))>=config.set_threold:
             return 1
         else:
             return 0
@@ -391,12 +487,26 @@ class Filter:
                 yield v, key
 
         result_dict = {}
-        if funca["fun_name"] in self.SlenceInfo[funca["file_name"]] and \
-            funcb["fun_name"] in self.SlenceInfo[funcb["file_name"]]:
-            slience_lista=self.SlenceInfo[funca["file_name"]][funca["fun_name"]]
-            slience_listb=self.SlenceInfo[funcb["file_name"]][funcb["fun_name"]]
-        elif funca["fun_name"] in self.SlenceInfo[funca["file_name"]] or \
-            funcb["fun_name"] in self.SlenceInfo[funcb["file_name"]]:
+        # assert
+        if config.test_vul==True:
+            try:
+                funcname_a=str(int(funca["fun_name"], 16))
+            except:
+                funcname_a=funca["fun_name"]
+            try:
+                funcname_b=str(int(funcb["fun_name"], 16))
+            except:
+                funcname_b=funcb["fun_name"]
+        else:
+            funcname_a = funca["fun_name"]
+            funcname_b = funcb["fun_name"]
+
+        if funcname_a in self.SlenceInfo[funca["file_name"]] and \
+            funcname_b in self.SlenceInfo[funcb["file_name"]]:
+            slience_lista=self.SlenceInfo[funca["file_name"]][funcname_a]
+            slience_listb=self.SlenceInfo[funcb["file_name"]][funcname_b]
+        elif funcname_a in self.SlenceInfo[funca["file_name"]] or \
+            funcname_b in self.SlenceInfo[funcb["file_name"]]:
             set_result_value(0)
             # yield_result()
             # for key, v in result_dict.items():
@@ -451,3 +561,7 @@ class Filter:
 if __name__=="__main__":
     filter=Filter()
     # filter.get_slienceinfo()
+
+
+
+

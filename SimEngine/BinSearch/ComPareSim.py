@@ -1,5 +1,5 @@
 import os
-
+import ujson
 import config
 
 os.environ['CUDA_VISIBLE_DEVICES']='0,1'
@@ -100,7 +100,8 @@ class x2vTrainer(object):
                                           self.kb_seq,
                                           self.node_kb_max,
                                           self.max_path,
-                                          self.path_len
+                                          self.path_len,
+                                     config.test_vul
                                           )
 
         self.id2vec = self.matrix_load(flags.id2vec)
@@ -171,19 +172,36 @@ class x2vTrainer(object):
                 # for firmware
                 # a_function_vec['object_name'] = funa['object_name']
                 # for quick_search by filtering
-                a_function_vec['fun_nodes'] = len(funa['cfga'])
-                a_function_vec['file_name']= funa['filea']
-                a_function_vec['fun_name'] = funa['namea']
-                a_function_vec['fun_address'] = funa['addressa']
-                a_function_vec['fun_vec'] = funveca.cpu().detach().numpy().tolist()
+                if config.test_vul==True:
+                    funa["similarity"]=1
+                    funca_info=self.get_data.vul[str(funa['funca'])]
+                    a_function_vec['fun_nodes'] = len(funca_info)
+                    a_function_vec['file_name']= funca_info['md5']
+                    a_function_vec['fun_name'] = funca_info['address']
+                    a_function_vec['fun_address'] = funca_info['address']
+                    a_function_vec['fun_vec'] = funveca.cpu().detach().numpy().tolist()
 
-                b_function_vec['fun_nodes'] = len(funa['cfgb'])
-                b_function_vec['file_name']= funa['fileb']
-                b_function_vec['fun_name'] = funa['nameb']
-                b_function_vec['fun_address'] = funa['addressb']
-                b_function_vec['fun_vec'] = funvecb.cpu().detach().numpy().tolist()
-                search_funcs_vec.append((a_function_vec,b_function_vec,float(pred),float(funa["similarity"])))
-                # print(a_function_vec['fun_name']+'-->done')
+                    funcb_info = self.get_data.func[str(funa['funcb'])]
+                    b_function_vec['fun_nodes'] = len(funcb_info)
+                    b_function_vec['file_name'] = funcb_info['filename']
+                    b_function_vec['fun_name'] = funcb_info['name']
+                    b_function_vec['fun_address'] = funcb_info['address']
+                    b_function_vec['fun_vec'] = funvecb.cpu().detach().numpy().tolist()
+                    search_funcs_vec.append((a_function_vec, b_function_vec, float(pred), float(1)))
+                else:
+                    a_function_vec['fun_nodes'] = len(funa['cfga'])
+                    a_function_vec['file_name']= funa['filea']
+                    a_function_vec['fun_name'] = funa['namea']
+                    a_function_vec['fun_address'] = funa['addressa']
+                    a_function_vec['fun_vec'] = funveca.cpu().detach().numpy().tolist()
+
+                    b_function_vec['fun_nodes'] = len(funa['cfgb'])
+                    b_function_vec['file_name']= funa['fileb']
+                    b_function_vec['fun_name'] = funa['nameb']
+                    b_function_vec['fun_address'] = funa['addressb']
+                    b_function_vec['fun_vec'] = funvecb.cpu().detach().numpy().tolist()
+                    search_funcs_vec.append((a_function_vec,b_function_vec,float(pred),float(funa["similarity"])))
+                    print(a_function_vec['fun_name']+'-->done')
 
                 if pred<config.sim:
                     result_pred.append(-1)
@@ -194,15 +212,23 @@ class x2vTrainer(object):
             print("%d/%d done" %(itera,iterations))
         print("准确率:",accuracy_score(result_lable , result_pred))
 
-
         fun_database = config.func_vector_info
-
         random.shuffle(search_funcs_vec)
+        if config.test_vul==True:
 
-        with open(config.trainResult+"/compareResult.json","w") as fd:
-            fd.write(json.dumps({"realLable":ground_truth,"predictLable":final_predict}))
-        with open(fun_database, 'w') as basefile:
-            json.dump(search_funcs_vec, basefile, indent=4, ensure_ascii=False)
+            with open(config.trainResult+"/compareResult.json","w") as fd:
+                fd.write(json.dumps({"realLable":ground_truth,"predictLable":final_predict}))
+            with open(fun_database, 'w') as basefile:
+                tmp=ujson.dumps(search_funcs_vec)
+                basefile.write(tmp)
+        else:
+            with open(config.trainResult+"/compareResult_testset.json","w") as fd:
+                fd.write(json.dumps({"realLable":ground_truth,"predictLable":final_predict}))
+            with open(fun_database, 'w') as basefile:
+                tmp=ujson.dumps(search_funcs_vec)
+                basefile.write(tmp)
+
+            # json.dump(search_funcs_vec, basefile, indent=4, ensure_ascii=False)
         print(fun_database + ':' + 'done')
 
     def get_seq_search_inputs(self,itera,dataset):

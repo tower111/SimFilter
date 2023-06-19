@@ -1,23 +1,85 @@
 import os
 import argparse
 import site
-
+from tqdm import  tqdm
+import cachetools
 import pandas as pd
 import json
 import random
+import ujson
+from functools import lru_cache
 import time
 from itertools import combinations
 
+class Vul():
+
+    def __init__(self,xlsx_path):
+        self.xlsx_path=xlsx_path
+        self.name=self.excel_one_line_to_list(0)[2:]
+        self.vul_id = self.excel_one_line_to_list(4)[2:]
+        self.crash_address=self.excel_one_line_to_list(8)[2:]
+        self.binary_md5=self.excel_one_line_to_list(9)[2:]
+        self.function_addr = self.excel_one_line_to_list(10)[2:]
+        self.block_addr = self.excel_one_line_to_list(14)[2:]
+
+        self.dict_info={}
+        for name,vul,clash,md5,func,block in zip(self.name,self.vul_id,self.crash_address,self.binary_md5
+                ,self.function_addr,self.block_addr):
+            key=md5.strip().lower()
+            self.dict_info[key]=(name,vul,clash,func,block)
+
+
+    def excel_one_line_to_list(self,item):
+        df = pd.read_excel(self.xlsx_path, usecols=[item],
+                           names=None)  # 读取项目名称列,不要列名
+        df_li = df.values.tolist()
+        result = []
+        for s_li in df_li:
+            result.append(s_li[0])
+        # print(result)
+        return result
 
 class getTestDataset(object):
     def __init__(self,FLAG):
         self.inputdir = FLAG.input
+        self.vuldir = FLAG.vul
         self.datacenterdir = FLAG.datacenter
         self.truepairs = None
         self.falsepairs = None
         self.file_list = self.scan_for_file(self.inputdir)
+        self.vul_list= self.getvul(self.vuldir)
         self.min_node = int(FLAG.min_node)
         self.max_node = int(FLAG.max_node)
+
+
+    def getvul(self,vuldir):
+        file_list=self.scan_for_file(vuldir)
+        self.vul=Vul(self.vuldir+"/result.xlsx")
+        result=[]
+        founded_binary=[]
+        for filename in file_list:
+            vul_md5=os.path.basename(filename).lower().strip().replace(".json","")
+            if vul_md5 in self.vul.dict_info:
+                founded_binary.append(vul_md5)
+                with open(filename,"r") as fd:
+                    content=json.loads(fd.read())
+                for func in content["functions"]:
+                    if int(func["address"],16)==int(self.vul.dict_info[vul_md5][3],16):
+                        func["md5"]=vul_md5
+                        func["vul_name"]=self.vul.dict_info[vul_md5][0]
+                        func["vul_id"]=self.vul.dict_info[vul_md5][1]
+                        func["crash_addr"]=self.vul.dict_info[vul_md5][2]
+                        func["vul_func"] = self.vul.dict_info[vul_md5][3]
+                        func["vul_block"] = self.vul.dict_info[vul_md5][4]
+                        result.append(func)
+                        break
+                else:
+                    print("vul not found :",vul_md5)
+                # result[vul_md5]=(self.vul.dict_info[vul_md5],content)
+
+        return result
+
+
 
     def scan_for_file(self,start):
         file_list = []
@@ -27,86 +89,37 @@ class getTestDataset(object):
         print('Found ' + str(len(file_list)) + ' object files')
         random.shuffle(file_list)
         return  file_list
-    def get_sim_pairs(self,file_a, file_b):
-        pairs = list()
-        softa = os.path.basename(file_a)
-        softb = os.path.basename(file_b)
-        with open(file_a, 'r') as afile:
-            with open(file_b, 'r') as bfile:
-                file_a_json = json.load(afile)
-                a_functions = file_a_json['functions']
-                file_b_json = json.load(bfile)
-                b_functions = file_b_json['functions']
+    @lru_cache(maxsize=None)
+    def openfile(self,file_b):
+        with open(file_b, 'r') as bfile:
+            file_b_json = json.load(bfile)
+        return file_b_json
+    def get_sim_pairs(self,index_vul,funca, num,file_b):
+        # pairs = list()
+        # softb = os.path.basename(file_b)
 
-                for funa in a_functions:
-                    a_name = funa['name']
-                    cfga = a_name
-                    for funb in b_functions:
-                        b_name = funb['name']
-                        cfgb = b_name
-                        true_pair = dict()
-                        if cfga == cfgb:
-                            lena =  len(funa['blocks'])
-                            lenb = len(funb['blocks'])
-                            if self.min_node<= lena <= self.max_node and self.min_node<= lenb <= self.max_node :
-                                true_pair['cfga'] = funa['blocks']
-                                true_pair['cfgb'] = funb['blocks']
-                                true_pair['namea'] = funa['name']
-                                true_pair['nameb'] = funb['name']
-                                true_pair['softa'] = str(softa)
-                                true_pair['softb'] = str(softb)
-                                true_pair['addressa'] = funa['address']
-                                true_pair['addressb'] = funb['address']
-                                true_pair['similarity'] = '+1'
-                                pairs.append(true_pair)
-                                break
-                            else:
-                                pass
-
-                        else:
-                            pass
+        # file_b_json = self.openfile(file_b)
+        # b_functions = file_b_json['functions']
+        # for funb in file_b:
+        false_pair = dict()
+        if file_b['filename'] != 'UNKname':
+            false_pair["funca"]=index_vul
+            false_pair["funcb"]=num
 
 
-
-                # for funa in a_functions:
-                #     if funa['file'] != 'UNKname':
-                #         a_name = funa['name']
-                #         a_file = funa['file']
-                #         cfga = a_file + a_name
-                #
-                #         for funb in b_functions:
-                #             if funb['file'] != 'UNKname':
-                #                 b_name = funb['name']
-                #                 b_file = funb['file']
-                #                 cfgb = b_file + b_name
-                #                 true_pair = dict()
-                #                 if cfga == cfgb:
-                #                     lena =  len(funa['blocks'])
-                #                     lenb = len(funb['blocks'])
-                #                     if self.min_node<= lena <= self.max_node and self.min_node<= lenb <= self.max_node :
-                #                         true_pair['cfga'] = funa['blocks']
-                #                         true_pair['cfgb'] = funb['blocks']
-                #                         true_pair['softa'] = str(softa)
-                #                         true_pair['softb'] = str(softb)
-                #                         true_pair['namea'] = funa['name']
-                #                         true_pair['nameb'] = funb['name']
-                #                         true_pair['filea'] = funa['file']
-                #                         true_pair['fileb'] = funb['file']
-                #                         true_pair['addressa'] = funa['address']
-                #                         true_pair['addressb'] = funb['address']
-                #                         true_pair['similarity'] = '+1'
-                #                         pairs.append(true_pair)
-                #                         break
-                #                     else:
-                #                         pass
-                #
-                #                 else:
-                #                     pass
-                #
-                #             else:
-                #                 pass
-
-        return pairs
+                # false_pair['cfga'] = funca['blocks']
+                # false_pair['cfgb'] = funb['blocks']
+                # false_pair['softa'] = str(funca["md5"])
+                # false_pair['softb'] = str(softb)
+                # false_pair['namea'] = funca['name']
+                # false_pair['nameb'] = funb['name']
+                # false_pair['filea'] = str(funca["md5"])
+                # false_pair['fileb'] = file_b_json['filename']
+                # # false_pair['addressa'] = funca['address']
+                # # false_pair['addressb'] = funb['address']
+                # # false_pair['similarity'] = '-1'
+                # pairs.append(false_pair)
+        return false_pair
 
     def get_dissim_pairs(self,file_a, file_b):
         pairs = list()
@@ -151,60 +164,56 @@ class getTestDataset(object):
 
     def get_dataset(self):
         datacenterdir = self.datacenterdir
-        file_list = self.file_list
-        comp_files = list(combinations(file_list, 2))
-        print(len(comp_files))
+        # file_list = self.file_list
+        # comp_files = list(combinations(file_list, 2))
+        print(len(self.vul_list)*len(self.file_list))
         num = 0
+
 
         sim_pairs = list()
         dis_pairs = list()
-        for dataset in comp_files:
-            file_a = dataset[0].split('_')
-            file_b = dataset[1].split('_')
+        vul_index={}
+        file_index={}
+        for index,vul in enumerate(self.vul_list):
+            vul_index[index]=vul
+        filename=""
+        num=0
+        for index,dataset in enumerate(self.file_list):
+            file_b_json = self.openfile(dataset)
+            b_functions = file_b_json['functions']
+            for funb in b_functions:
+                funb["filename"]=file_b_json["filename"]
+                file_index[num]=funb
+                num+=1
+            # filename=file_b_json["filename"]
 
 
-            if file_b[-1] != file_a[-1]:
-                pass
-            else:
-                file_a = dataset[0]
-                file_b = dataset[1]
-                if '_x86_64_O1' in file_a and '_arm_64_O0' in file_b:
-                    t_pairs = self.get_sim_pairs(file_a, file_b)
-                    lent = len(t_pairs)
-                    if lent == 0:
-                        pass
-                    else:
-                        f_pairs = self.get_dissim_pairs(file_a, file_b)
-                        lenf = len(f_pairs)
-                        min = lent
-                        if lenf < min:
-                            min = lenf
-                        num = num +1
+        for index_vul,vul in enumerate(self.vul_list):
+            # num=0
 
-                        print(file_a)
-                        print(file_b)
-                        print(num,'t_pairs=', lent, 'f_pairs=', lenf, 'min=', min)
+            for index_tested ,dataset in file_index.items():
+            # for index_tested,dataset in enumerate(self.file_list):
+                file_b = dataset
+                t_pairs = self.get_sim_pairs(index_vul,vul,index_tested, file_b)
+                sim_pairs.append(t_pairs)
 
-                        sim_pairs.extend(t_pairs[0:min])
-                        dis_pairs.extend(f_pairs[0:min])
-                        print('-----------------')
 
-        true_data = os.path.join(datacenterdir, "dataset.true.json")
+        true_data = os.path.join(datacenterdir, "Testdataset.json")
         random.shuffle(sim_pairs)
-
+        result={}
+        result["vul"]=vul_index
+        result["func"]=file_index
+        result["pair"]=sim_pairs
+        sjson=ujson.dumps(result)
         with open(true_data, 'w') as simfile:
-            json.dump(sim_pairs, simfile, indent=4, ensure_ascii=False)
+            simfile.write(sjson)
+            # json.dump(result, simfile, indent=4, ensure_ascii=False)
         print(true_data + ':' + 'done')
 
-        false_data = os.path.join(datacenterdir, "dataset.false.json")
-        random.shuffle(dis_pairs)
 
-        with open(false_data, 'w') as dissimfile:
-            json.dump(dis_pairs, dissimfile, indent=4, ensure_ascii=False)
-        print(false_data + ':' + 'done')
+
 
         self.truepairs = true_data
-        self.falsepairs = false_data
 
         self.creat_pairs()
         # self.dataset_statistic()
@@ -294,13 +303,14 @@ class getTestDataset(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", type=str, help="input ")
+    parser.add_argument("-vul", "--vul", type=str, help="vul path ")
     parser.add_argument("-d", "--datacenter", type=str, help="output")
     parser.add_argument("-min", "--min_node", type=int, help="min_node")
     parser.add_argument("-max", "--max_node", type=int, help="max_node")
     args = parser.parse_args()
 
 
-    pair_dataset = getDataset(args)
+    pair_dataset = getTestDataset(args)
     # for test dataset
     pair_dataset.get_dataset()
 
